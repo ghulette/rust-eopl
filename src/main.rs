@@ -1,5 +1,38 @@
 #![allow(dead_code)]
 
+mod env;
+use env::Env;
+
+#[derive(Debug, Clone, Copy)]
+enum Value {
+    Num(i32),
+    Bool(bool),
+}
+
+impl Value {
+    pub fn num(n: i32) -> Value {
+        Value::Num(n)
+    }
+
+    pub fn bool(b: bool) -> Value {
+        Value::Bool(b)
+    }
+
+    pub fn to_num(&self) -> i32 {
+        match self {
+            Value::Num(n) => *n,
+            _ => panic!("to_num"),
+        }
+    }
+
+    pub fn to_bool(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            _ => panic!("to_bool"),
+        }
+    }
+}
+
 enum Expr {
     Var(String),
     Num(i32),
@@ -40,58 +73,7 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Value {
-    Num(i32),
-    Bool(bool),
-}
-
-impl Value {
-    fn to_num(&self) -> i32 {
-        match self {
-            Value::Num(n) => *n,
-            _ => panic!("to_num"),
-        }
-    }
-
-    fn to_bool(&self) -> bool {
-        match self {
-            Value::Bool(b) => *b,
-            _ => panic!("to_bool"),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-enum Env<'a> {
-    Empty,
-    Extend(&'a Env<'a>, String, Value),
-}
-
-impl<'a> Env<'_> {
-    fn empty() -> Env<'a> {
-        Env::Empty
-    }
-
-    fn extend(&'a self, x: &str, v: Value) -> Env<'a> {
-        Env::Extend(self, String::from(x), v)
-    }
-
-    fn apply(&self, x: &str) -> Option<Value> {
-        match self {
-            Env::Empty => None,
-            Env::Extend(env0, y, v) => {
-                if *x == *y {
-                    Some(*v)
-                } else {
-                    Env::apply(env0, x)
-                }
-            }
-        }
-    }
-}
-
-fn value_of(e: &Expr, env: &Env) -> Value {
+fn value_of(e: &Expr, env: &Env<Value>) -> Value {
     match e {
         Expr::Var(x) => {
             let msg = format!("not found: {}", x);
@@ -124,7 +106,11 @@ fn value_of(e: &Expr, env: &Env) -> Value {
 }
 
 fn main() {
-    let env = Box::new(Env::empty());
-    let pgm = Box::new(Expr::let_in("x", Expr::num(10), Expr::diff(Expr::var("x"), Expr::num(1))));
+    let env = Env::empty();
+    let pgm = Box::new(Expr::let_in(
+        "x",
+        Expr::num(10),
+        Expr::diff(Expr::var("x"), Expr::num(1)),
+    ));
     println!("{:?}", value_of(&pgm, &env));
 }
