@@ -3,43 +3,11 @@
 mod env;
 use env::Env;
 
-#[derive(Debug, Clone, Copy)]
-enum Value {
-    Num(i32),
-    Bool(bool),
-}
-
-impl Value {
-    pub fn num(n: i32) -> Value {
-        Value::Num(n)
-    }
-
-    pub fn bool(b: bool) -> Value {
-        Value::Bool(b)
-    }
-
-    pub fn to_num(&self) -> i32 {
-        match self {
-            Value::Num(n) => *n,
-            _ => panic!("to_num"),
-        }
-    }
-
-    pub fn to_bool(&self) -> bool {
-        match self {
-            Value::Bool(b) => *b,
-            _ => panic!("to_bool"),
-        }
-    }
-}
-
+#[derive(Debug, Clone)]
 enum Expr {
     Var(String),
     Num(i32),
-    Bool(bool),
     Diff(Box<Expr>, Box<Expr>),
-    IsZero(Box<Expr>),
-    IfThenElse(Box<Expr>, Box<Expr>, Box<Expr>),
     LetIn(String, Box<Expr>, Box<Expr>),
 }
 
@@ -48,24 +16,12 @@ impl Expr {
         Expr::Var(String::from(x))
     }
 
-    pub fn num(n: i32) -> Expr {
+    fn num(n: i32) -> Expr {
         Expr::Num(n)
     }
 
-    fn bool(b: bool) -> Expr {
-        Expr::Bool(b)
-    }
-
-    pub fn diff(e1: Expr, e2: Expr) -> Expr {
+    fn diff(e1: Expr, e2: Expr) -> Expr {
         Expr::Diff(Box::new(e1), Box::new(e2))
-    }
-
-    fn is_zero(e: Expr) -> Expr {
-        Expr::IsZero(Box::new(e))
-    }
-
-    fn if_then_else(e1: Expr, e2: Expr, e3: Expr) -> Expr {
-        Expr::IfThenElse(Box::new(e1), Box::new(e2), Box::new(e3))
     }
 
     fn let_in(x: &str, e1: Expr, e2: Expr) -> Expr {
@@ -73,34 +29,21 @@ impl Expr {
     }
 }
 
-fn value_of(e: &Expr, env: &Env<Value>) -> Value {
-    match e {
+fn value_of(e: &Expr, env: &Env) -> i32 {
+    match &*e {
         Expr::Var(x) => {
             let msg = format!("not found: {}", x);
             env.apply(x).expect(&msg)
         }
-        Expr::Num(n) => Value::Num(*n),
-        Expr::Bool(b) => Value::Bool(*b),
+        Expr::Num(n) => *n,
         Expr::Diff(e1, e2) => {
-            let n1 = value_of(e1, env).to_num();
-            let n2 = value_of(e2, env).to_num();
-            Value::Num(n1 - n2)
-        }
-        Expr::IsZero(e1) => {
-            let n1 = value_of(e1, env).to_num();
-            Value::Bool(n1 == 0)
-        }
-        Expr::IfThenElse(e1, e2, e3) => {
-            let c = value_of(e1, env).to_bool();
-            if c {
-                value_of(e2, env)
-            } else {
-                value_of(e3, env)
-            }
+            let n1 = value_of(e1, env);
+            let n2 = value_of(e2, env);
+            n1 - n2
         }
         Expr::LetIn(x, e1, e2) => {
             let v1 = value_of(e1, env);
-            value_of(e2, &env.extend(x, v1))
+            value_of(e2, &env.extend(&x, v1))
         }
     }
 }

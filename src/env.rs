@@ -1,22 +1,32 @@
+use std::rc::Rc;
+
 #[derive(Debug, Clone)]
-pub enum Env<'a, T> {
-    Empty,
-    Extend(&'a Env<'a, T>, String, T),
+pub struct Env {
+    head : Rc<Link>
 }
 
-impl<'a, T: Copy> Env<'_, T> {
-    pub fn empty() -> Env<'a, T> {
-        Env::Empty
+#[derive(Debug)]
+enum Link {
+    Empty,
+    Extend(Env, String, i32)
+}
+
+impl Env {
+    pub fn empty() -> Env {
+        let head = Rc::new(Link::Empty);
+        Env { head }
     }
 
-    pub fn extend(&'a self, x: &str, v: T) -> Env<'a, T> {
-        Env::Extend(self, String::from(x), v)
+    pub fn extend(&self, x: &str, v: i32) -> Env {
+        let link = Link::Extend(self.clone(), String::from(x), v);
+        let head = Rc::new(link);
+        Env { head }
     }
 
-    pub fn apply(&self, x: &str) -> Option<T> {
-        match self {
-            Env::Empty => None,
-            Env::Extend(env, y, v) => {
+    pub fn apply(&self, x: &str) -> Option<i32> {
+        match &*self.head {
+            Link::Empty => None,
+            Link::Extend(env, y, v) => {
                 if *x == *y {
                     Some(*v)
                 } else {
