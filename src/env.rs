@@ -2,13 +2,13 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct Env {
-    head : Rc<Link>
+    head: Rc<Link>,
 }
 
 #[derive(Debug)]
 enum Link {
     Empty,
-    Extend(Env, String, i32)
+    Extend(Env, String, i32),
 }
 
 impl Env {
