@@ -1,46 +1,7 @@
 #![allow(dead_code)]
-
+mod env;
+use crate::env::Env;
 use std::rc::Rc;
-
-#[derive(Debug, Clone)]
-pub struct Env<T> {
-    head: Rc<Link<T>>,
-}
-
-#[derive(Debug)]
-enum Link<T> {
-    Empty,
-    Extend(Env<T>, String, T),
-}
-
-impl<T> Env<T>
-where
-    T: Clone,
-{
-    pub fn empty() -> Env<T> {
-        let head = Rc::new(Link::Empty);
-        Env { head }
-    }
-
-    pub fn extend(&self, x: &str, v: T) -> Env<T> {
-        let link = Link::Extend(self.clone(), String::from(x), v.clone());
-        let head = Rc::new(link);
-        Env { head }
-    }
-
-    pub fn apply(&self, x: &str) -> Option<T> {
-        match &*self.head {
-            Link::Empty => None,
-            Link::Extend(env, y, v) => {
-                if *x == *y {
-                    Some(v.clone())
-                } else {
-                    env.apply(x)
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 enum Value {
@@ -112,7 +73,7 @@ fn value_of(e: &Expr, env: &Env<Value>) -> Value {
     match &*e {
         Expr::Var(x) => {
             let msg = format!("not found: {}", x);
-            env.apply(x).expect(&msg)
+            env.lookup(x).expect(&msg)
         }
         Expr::Num(n) => Value::num(*n),
         Expr::Diff(e1, e2) => {
