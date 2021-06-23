@@ -6,7 +6,7 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 enum Value {
     Num(i32),
-    Closure(String, Rc<Expr>, Env<Value>),
+    Closure(String, Expr, Env<Value>),
 }
 
 impl Value {
@@ -14,7 +14,7 @@ impl Value {
         Value::Num(n)
     }
 
-    fn closure(x: &str, e: Rc<Expr>, env: Env<Value>) -> Value {
+    fn closure(x: &str, e: Expr, env: Env<Value>) -> Value {
         Value::Closure(String::from(x), e, env)
     }
 
@@ -33,60 +33,70 @@ impl Value {
     }
 }
 
+
 #[derive(Debug, Clone)]
-enum Expr {
+pub struct Expr(Rc<ExprRaw>);
+
+#[derive(Debug)]
+enum ExprRaw {
     Var(String),
     Num(i32),
-    Proc(String, Rc<Expr>),
-    Diff(Box<Expr>, Box<Expr>),
-    LetIn(String, Box<Expr>, Box<Expr>),
-    Apply(Box<Expr>, Box<Expr>),
+    Proc(String, Expr),
+    Diff(Expr, Expr),
+    LetIn(String, Expr, Expr),
+    Apply(Expr, Expr),
+}
+
+impl ExprRaw {
+    fn wrap(self) -> Expr {
+        Expr(Rc::new(self))
+    }
 }
 
 impl Expr {
-    fn var(x: &str) -> Expr {
-        Expr::Var(String::from(x))
+    pub fn var(x: &str) -> Expr {
+        ExprRaw::Var(String::from(x)).wrap()
     }
 
-    fn num(n: i32) -> Expr {
-        Expr::Num(n)
+    pub fn num(n: i32) -> Expr {
+        ExprRaw::Num(n).wrap()
     }
 
     fn diff(e1: Expr, e2: Expr) -> Expr {
-        Expr::Diff(Box::new(e1), Box::new(e2))
+        ExprRaw::Diff(e1, e2).wrap()
     }
 
     fn let_in(x: &str, e1: Expr, e2: Expr) -> Expr {
-        Expr::LetIn(String::from(x), Box::new(e1), Box::new(e2))
+        ExprRaw::LetIn(String::from(x), e1, e2).wrap()
     }
 
     fn proc(x: &str, e1: Expr) -> Expr {
-        Expr::Proc(String::from(x), Rc::new(e1))
+        ExprRaw::Proc(String::from(x), e1).wrap()
     }
 
     fn apply(e1: Expr, e2: Expr) -> Expr {
-        Expr::Apply(Box::new(e1), Box::new(e2))
+        ExprRaw::Apply(e1, e2).wrap()
     }
 }
 
 fn value_of(e: &Expr, env: &Env<Value>) -> Value {
-    match &*e {
-        Expr::Var(x) => {
+    match &*e.0 {
+        ExprRaw::Var(x) => {
             let msg = format!("not found: {}", x);
             env.lookup(x).expect(&msg)
         }
-        Expr::Num(n) => Value::num(*n),
-        Expr::Diff(e1, e2) => {
+        ExprRaw::Num(n) => Value::num(*n),
+        ExprRaw::Diff(e1, e2) => {
             let n1 = value_of(e1, env).to_num();
             let n2 = value_of(e2, env).to_num();
             Value::num(n1 - n2)
         }
-        Expr::LetIn(x, e1, e2) => {
+        ExprRaw::LetIn(x, e1, e2) => {
             let v1 = value_of(e1, env);
             value_of(e2, &env.extend(&x, v1))
         }
-        Expr::Proc(x, e1) => Value::closure(x, e1.clone(), env.clone()),
-        Expr::Apply(e1, e2) => {
+        ExprRaw::Proc(x, e1) => Value::closure(x, e1.clone(), env.clone()),
+        ExprRaw::Apply(e1, e2) => {
             let rator = value_of(e1, env);
             let rand = value_of(e2, env);
             rator.apply(rand)
