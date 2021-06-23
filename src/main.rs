@@ -33,7 +33,6 @@ impl Value {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Expr(Rc<ExprRaw>);
 
@@ -62,19 +61,19 @@ impl Expr {
         ExprRaw::Num(n).wrap()
     }
 
-    fn diff(e1: Expr, e2: Expr) -> Expr {
+    pub fn diff(e1: Expr, e2: Expr) -> Expr {
         ExprRaw::Diff(e1, e2).wrap()
     }
 
-    fn let_in(x: &str, e1: Expr, e2: Expr) -> Expr {
+    pub fn let_in(x: &str, e1: Expr, e2: Expr) -> Expr {
         ExprRaw::LetIn(String::from(x), e1, e2).wrap()
     }
 
-    fn proc(x: &str, e1: Expr) -> Expr {
+    pub fn proc(x: &str, e1: Expr) -> Expr {
         ExprRaw::Proc(String::from(x), e1).wrap()
     }
 
-    fn apply(e1: Expr, e2: Expr) -> Expr {
+    pub fn apply(e1: Expr, e2: Expr) -> Expr {
         ExprRaw::Apply(e1, e2).wrap()
     }
 }
