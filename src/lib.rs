@@ -45,6 +45,16 @@ impl Value {
   }
 }
 
+impl PartialEq for Value {
+  fn eq(&self, other : &Value) -> bool {
+    match (self, other) {
+      (Value::Num(n1), Value::Num(n2)) => n1 == n2,
+      (Value::Bool(b1), Value::Bool(b2)) => b1 == b2,
+      (_, _) => false
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct Expr(Rc<ExprRaw>);
 
@@ -134,5 +144,26 @@ impl Expr {
         rator.apply(rand)
       }
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ex1 () {
+    let env = Env::empty();
+    let pgm = Expr::let_in(
+        "f",
+        Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
+        Expr::if_then_else(
+            Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
+            Expr::num(100),
+            Expr::num(200),
+        ),
+    );
+    let result = pgm.value_of(&env);
+    assert_eq!(result, Value::Num(100))
   }
 }
