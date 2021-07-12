@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 mod env;
-use crate::env::Env;
+
+use env::Env;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
