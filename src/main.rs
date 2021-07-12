@@ -3,7 +3,6 @@ mod expr;
 
 use crate::env::Env;
 use expr::Expr;
-use expr::value_of;
 
 fn main() {
     let env = Env::empty();
@@ -16,5 +15,6 @@ fn main() {
             Expr::num(200),
         ),
     );
-    println!("{:?}", value_of(&pgm, &env));
+    let result = pgm.value_of(&env);
+    println!("Result: {:?}", result);
 }
