@@ -1,8 +1,4 @@
-mod env;
-mod expr;
-
-use crate::env::Env;
-use expr::Expr;
+use rust_eopl::{Expr, Env};
 
 fn main() {
     let env = Env::empty();

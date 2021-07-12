@@ -1,4 +1,6 @@
-use crate::env::Env;
+mod env;
+
+pub use crate::env::Env;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]

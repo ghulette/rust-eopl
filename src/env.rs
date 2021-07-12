@@ -1,9 +1,9 @@
-#![allow(dead_code)]
-
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub struct Env<T>(Rc<Entry<T>>);
+pub struct Env<T> {
+    entry: Rc<Entry<T>>,
+}
 
 #[derive(Debug)]
 enum Entry<T> {
@@ -16,18 +16,17 @@ where
     T: Clone,
 {
     pub fn empty() -> Env<T> {
-        let head = Rc::new(Entry::Empty);
-        Env(head)
+        let entry = Rc::new(Entry::Empty);
+        Env { entry }
     }
 
     pub fn extend(&self, x: &str, v: T) -> Env<T> {
-        let link = Entry::Extend(self.clone(), String::from(x), v.clone());
-        let head = Rc::new(link);
-        Env(head)
+        let entry = Rc::new(Entry::Extend(self.clone(), String::from(x), v.clone()));
+        Env { entry }
     }
 
     pub fn lookup(&self, x: &str) -> Option<T> {
-        match &*self.0 {
+        match &*self.entry {
             Entry::Empty => None,
             Entry::Extend(env, y, v) => {
                 if *x == *y {
