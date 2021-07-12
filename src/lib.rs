@@ -7,7 +7,7 @@ use std::rc::Rc;
 pub enum Value {
   Num(i32),
   Bool(bool),
-  Closure(String, Expr, Env<Value>),
+  Closure(String, Ast, Env<Value>),
 }
 
 impl Value {
@@ -19,7 +19,7 @@ impl Value {
     Value::Bool(b)
   }
 
-  fn closure(x: &str, e: Expr, env: Env<Value>) -> Value {
+  fn closure(x: &str, e: Ast, env: Env<Value>) -> Value {
     Value::Closure(String::from(x), e, env)
   }
 
@@ -46,86 +46,86 @@ impl Value {
 }
 
 impl PartialEq for Value {
-  fn eq(&self, other : &Value) -> bool {
+  fn eq(&self, other: &Value) -> bool {
     match (self, other) {
       (Value::Num(n1), Value::Num(n2)) => n1 == n2,
       (Value::Bool(b1), Value::Bool(b2)) => b1 == b2,
-      (_, _) => false
+      (_, _) => false,
     }
   }
 }
 
 #[derive(Debug, Clone)]
-pub struct Expr(Rc<ExprRaw>);
+pub struct Ast {
+  expr: Rc<Expr>,
+}
 
 #[derive(Debug)]
-enum ExprRaw {
+enum Expr {
   Var(String),
   Num(i32),
-  Proc(String, Expr),
-  Diff(Expr, Expr),
-  IsZero(Expr),
-  IfThenElse(Expr, Expr, Expr),
-  LetIn(String, Expr, Expr),
-  Apply(Expr, Expr),
+  Proc(String, Ast),
+  Diff(Ast, Ast),
+  IsZero(Ast),
+  IfThenElse(Ast, Ast, Ast),
+  LetIn(String, Ast, Ast),
+  Apply(Ast, Ast),
 }
 
-impl ExprRaw {
-  fn wrap(self) -> Expr {
-    Expr(Rc::new(self))
-  }
-}
-
-impl Expr {
-  pub fn var(x: &str) -> Expr {
-    ExprRaw::Var(String::from(x)).wrap()
+impl Ast {
+  fn new(e: Expr) -> Ast {
+    Ast { expr: Rc::new(e) }
   }
 
-  pub fn num(n: i32) -> Expr {
-    ExprRaw::Num(n).wrap()
+  pub fn var(x: &str) -> Ast {
+    Ast::new(Expr::Var(String::from(x)))
   }
 
-  pub fn diff(e1: Expr, e2: Expr) -> Expr {
-    ExprRaw::Diff(e1, e2).wrap()
+  pub fn num(n: i32) -> Ast {
+    Ast::new(Expr::Num(n))
   }
 
-  pub fn is_zero(e1: Expr) -> Expr {
-    ExprRaw::IsZero(e1).wrap()
+  pub fn diff(e1: Ast, e2: Ast) -> Ast {
+    Ast::new(Expr::Diff(e1, e2))
   }
 
-  pub fn if_then_else(e1: Expr, e2: Expr, e3: Expr) -> Expr {
-    ExprRaw::IfThenElse(e1, e2, e3).wrap()
+  pub fn is_zero(e1: Ast) -> Ast {
+    Ast::new(Expr::IsZero(e1))
   }
 
-  pub fn let_in(x: &str, e1: Expr, e2: Expr) -> Expr {
-    ExprRaw::LetIn(String::from(x), e1, e2).wrap()
+  pub fn if_then_else(e1: Ast, e2: Ast, e3: Ast) -> Ast {
+    Ast::new(Expr::IfThenElse(e1, e2, e3))
   }
 
-  pub fn proc(x: &str, e1: Expr) -> Expr {
-    ExprRaw::Proc(String::from(x), e1).wrap()
+  pub fn let_in(x: &str, e1: Ast, e2: Ast) -> Ast {
+    Ast::new(Expr::LetIn(String::from(x), e1, e2))
   }
 
-  pub fn apply(e1: Expr, e2: Expr) -> Expr {
-    ExprRaw::Apply(e1, e2).wrap()
+  pub fn proc(x: &str, e1: Ast) -> Ast {
+    Ast::new(Expr::Proc(String::from(x), e1))
+  }
+
+  pub fn apply(e1: Ast, e2: Ast) -> Ast {
+    Ast::new(Expr::Apply(e1, e2))
   }
 
   pub fn value_of(&self, env: &Env<Value>) -> Value {
-    match &*self.0 {
-      ExprRaw::Var(x) => {
+    match &*self.expr {
+      Expr::Var(x) => {
         let msg = format!("not found: {}", x);
         env.lookup(x).expect(&msg)
       }
-      ExprRaw::Num(n) => Value::num(*n),
-      ExprRaw::Diff(e1, e2) => {
+      Expr::Num(n) => Value::num(*n),
+      Expr::Diff(e1, e2) => {
         let n1 = e1.value_of(env).to_num();
         let n2 = e2.value_of(env).to_num();
         Value::num(n1 - n2)
       }
-      ExprRaw::IsZero(e1) => {
+      Expr::IsZero(e1) => {
         let n1 = e1.value_of(env).to_num();
         Value::bool(0 == n1)
       }
-      ExprRaw::IfThenElse(e1, e2, e3) => {
+      Expr::IfThenElse(e1, e2, e3) => {
         let b1 = e1.value_of(env).to_bool();
         if b1 {
           e2.value_of(env)
@@ -133,12 +133,12 @@ impl Expr {
           e3.value_of(env)
         }
       }
-      ExprRaw::LetIn(x, e1, e2) => {
+      Expr::LetIn(x, e1, e2) => {
         let v1 = e1.value_of(env);
         e2.value_of(&env.extend(&x, v1))
       }
-      ExprRaw::Proc(x, e1) => Value::closure(x, e1.clone(), env.clone()),
-      ExprRaw::Apply(e1, e2) => {
+      Expr::Proc(x, e1) => Value::closure(x, e1.clone(), env.clone()),
+      Expr::Apply(e1, e2) => {
         let rator = e1.value_of(env);
         let rand = e2.value_of(env);
         rator.apply(rand)
@@ -152,16 +152,16 @@ mod tests {
   use super::*;
 
   #[test]
-  fn ex1 () {
+  fn ex1() {
     let env = Env::empty();
-    let pgm = Expr::let_in(
-        "f",
-        Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
-        Expr::if_then_else(
-            Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
-            Expr::num(100),
-            Expr::num(200),
-        ),
+    let pgm = Ast::let_in(
+      "f",
+      Ast::proc("x", Ast::diff(Ast::var("x"), Ast::num(1))),
+      Ast::if_then_else(
+        Ast::is_zero(Ast::apply(Ast::var("f"), Ast::num(1))),
+        Ast::num(100),
+        Ast::num(200),
+      ),
     );
     let result = pgm.value_of(&env);
     assert_eq!(result, Value::Num(100))
