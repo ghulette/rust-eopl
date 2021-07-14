@@ -1,36 +1,52 @@
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub struct Env<T> {
-    entry: Rc<Entry<T>>,
+pub struct Env {
+    entry: Rc<Entry>,
 }
 
 #[derive(Debug)]
-enum Entry<T> {
+enum Entry {
     Empty,
-    Extend(Env<T>, String, T),
+    Extend(Env, String, Value),
+    ExtendRec(Env, String, String, Ast),
 }
 
-impl<T> Env<T>
-where
-    T: Clone,
-{
-    pub fn empty() -> Env<T> {
+impl Env {
+    pub fn empty() -> Env {
         let entry = Rc::new(Entry::Empty);
         Env { entry }
     }
 
-    pub fn extend(&self, x: &str, v: T) -> Env<T> {
+    pub fn extend(&self, x: &str, v: Value) -> Env {
         let entry = Rc::new(Entry::Extend(self.clone(), String::from(x), v.clone()));
         Env { entry }
     }
 
-    pub fn lookup(&self, x: &str) -> Option<T> {
+    pub fn extend_rec(&self, proc_id: &str, var_id: &str, body: Ast) -> Env {
+        let entry = Rc::new(Entry::ExtendRec(
+            self.clone(),
+            String::from(proc_id),
+            String::from(var_id),
+            body,
+        ));
+        Env { entry }
+    }
+
+    pub fn lookup(&self, x: &str) -> Option<Value> {
         match &*self.entry {
             Entry::Empty => None,
-            Entry::Extend(env, y, v) => {
-                if *x == *y {
-                    Some(v.clone())
+            Entry::Extend(env, var_id, val) => {
+                if *x == *var_id {
+                    Some(val.clone())
+                } else {
+                    env.lookup(x)
+                }
+            }
+            Entry::ExtendRec(env, proc_id, var_id, body) => {
+                if *x == *proc_id {
+                    let val = Value::Closure(var_id.clone(), body.clone(), self.clone());
+                    Some(val)
                 } else {
                     env.lookup(x)
                 }
@@ -43,7 +59,7 @@ where
 pub enum Value {
     Num(i32),
     Bool(bool),
-    Closure(String, Ast, Env<Value>),
+    Closure(String, Ast, Env),
 }
 
 impl Value {
@@ -55,7 +71,7 @@ impl Value {
         Value::Bool(b)
     }
 
-    fn closure(x: &str, e: Ast, env: Env<Value>) -> Value {
+    fn closure(x: &str, e: Ast, env: Env) -> Value {
         Value::Closure(String::from(x), e, env)
     }
 
@@ -105,6 +121,7 @@ enum Expr {
     IsZero(Ast),
     IfThenElse(Ast, Ast, Ast),
     LetIn(String, Ast, Ast),
+    LetRec(String, String, Ast, Ast),
     Apply(Ast, Ast),
 }
 
@@ -137,6 +154,10 @@ impl Ast {
         Ast::new(Expr::LetIn(String::from(x), e1, e2))
     }
 
+    pub fn let_rec(proc: &str, x: &str, e1: Ast, e2: Ast) -> Ast {
+        Ast::new(Expr::LetRec(String::from(proc), String::from(x), e1, e2))
+    }
+
     pub fn proc(x: &str, e1: Ast) -> Ast {
         Ast::new(Expr::Proc(String::from(x), e1))
     }
@@ -145,7 +166,7 @@ impl Ast {
         Ast::new(Expr::Apply(e1, e2))
     }
 
-    pub fn value_of(&self, env: &Env<Value>) -> Value {
+    pub fn value_of(&self, env: &Env) -> Value {
         match &*self.expr {
             Expr::Var(x) => {
                 let msg = format!("not found: {}", x);
@@ -173,6 +194,7 @@ impl Ast {
                 let v1 = e1.value_of(env);
                 e2.value_of(&env.extend(&x, v1))
             }
+            Expr::LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1.clone())),
             Expr::Proc(x, e1) => Value::closure(x, e1.clone(), env.clone()),
             Expr::Apply(e1, e2) => {
                 let rator = e1.value_of(env);
@@ -201,5 +223,25 @@ mod tests {
         );
         let result = pgm.value_of(&env);
         assert_eq!(result, Value::Num(100))
+    }
+
+    #[test]
+    fn ex2() {
+        let env = Env::empty();
+        let pgm = Ast::let_rec(
+            "double",
+            "x",
+            Ast::if_then_else(
+                Ast::is_zero(Ast::var("x")),
+                Ast::num(0),
+                Ast::diff(
+                    Ast::apply(Ast::var("double"), Ast::diff(Ast::var("x"), Ast::num(1))),
+                    Ast::num(-2),
+                ),
+            ),
+            Ast::apply(Ast::var("double"), Ast::num(6)),
+        );
+        let result = pgm.value_of(&env);
+        assert_eq!(result, Value::Num(12))
     }
 }
