@@ -3,7 +3,9 @@ name = "rust-eopl"
 version = "0.1.0"
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[build-dependencies]
+lalrpop = "0.19.6"
 
 [dependencies]
-lalrpop="0.19.6"
+lalrpop-util = "0.19.6"
+regex = "1"

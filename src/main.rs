@@ -1,3 +1,11 @@
+#[macro_use] extern crate lalrpop_util;
+lalrpop_mod!(pub calc1);
+
+#[test]
+fn test_calc() {
+    assert_eq!(calc1::TermParser::new().parse("(42)").unwrap(), 42);
+}
+
 use rust_eopl::{Ast, Env};
 
 fn main() {
