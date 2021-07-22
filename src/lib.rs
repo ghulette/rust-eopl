@@ -156,22 +156,23 @@ impl Expr {
     }
 
     pub fn value_of(&self, env: &Env) -> Value {
+        use Expr::*;
         match self {
-            Self::Var(x) => {
+            Var(x) => {
                 let msg = format!("not found: {}", x);
                 env.lookup(x).expect(&msg)
             }
-            Self::Num(n) => Value::num(*n),
-            Self::Diff(e1, e2) => {
+            Num(n) => Value::num(*n),
+            Diff(e1, e2) => {
                 let n1 = e1.value_of(env).to_num();
                 let n2 = e2.value_of(env).to_num();
                 Value::num(n1 - n2)
             }
-            Self::IsZero(e1) => {
+            IsZero(e1) => {
                 let n1 = e1.value_of(env).to_num();
                 Value::bool(0 == n1)
             }
-            Self::IfThenElse(e1, e2, e3) => {
+            IfThenElse(e1, e2, e3) => {
                 let b1 = e1.value_of(env).to_bool();
                 if b1 {
                     e2.value_of(env)
@@ -179,13 +180,13 @@ impl Expr {
                     e3.value_of(env)
                 }
             }
-            Self::LetIn(x, e1, e2) => {
+            LetIn(x, e1, e2) => {
                 let v1 = e1.value_of(env);
                 e2.value_of(&env.extend(&x, &v1))
             }
-            Self::LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
-            Self::Proc(x, e1) => Value::closure(x, e1, env),
-            Self::Apply(e1, e2) => {
+            LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
+            Proc(x, e1) => Value::closure(x, e1, env),
+            Apply(e1, e2) => {
                 let rator = e1.value_of(env);
                 let rand = e2.value_of(env);
                 rator.apply(&rand)
