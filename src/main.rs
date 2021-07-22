@@ -1,14 +1,14 @@
-use rust_eopl::{Ast, Env};
+use rust_eopl::{Expr, Env};
 
 fn main() {
     let env = Env::empty();
-    let pgm = Ast::let_in(
+    let pgm = Expr::let_in(
         "f",
-        Ast::proc("x", Ast::diff(Ast::var("x"), Ast::num(1))),
-        Ast::if_then_else(
-            Ast::is_zero(Ast::apply(Ast::var("f"), Ast::num(1))),
-            Ast::num(100),
-            Ast::num(200),
+        Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
+        Expr::if_then_else(
+            Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
+            Expr::num(100),
+            Expr::num(200),
         ),
     );
     let result = pgm.value_of(&env);
