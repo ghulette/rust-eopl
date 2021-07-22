@@ -10,7 +10,7 @@ impl Env {
         Env::Empty
     }
 
-    pub fn extend(&self, x: &str, v: Value) -> Self {
+    pub fn extend(&self, x: &str, v: &Value) -> Self {
         Env::Extend(Box::new(self.clone()), String::from(x), v.clone())
     }
 
@@ -35,7 +35,7 @@ impl Env {
             }
             Env::ExtendRec(env, proc_id, var_id, body) => {
                 if *x == *proc_id {
-                    Some(Value::closure(&var_id, &body, self))
+                    Some(Value::closure(var_id, body, self))
                 } else {
                     env.lookup(x)
                 }
@@ -82,7 +82,7 @@ impl Value {
         }
     }
 
-    fn apply(&self, v2: Self) -> Self {
+    fn apply(&self, v2: &Self) -> Self {
         match self {
             Value::Closure(x, e, env) => e.value_of(&env.extend(x, v2)),
             _ => panic!("Value::apply"),
@@ -181,14 +181,14 @@ impl Expr {
             }
             Self::LetIn(x, e1, e2) => {
                 let v1 = e1.value_of(env);
-                e2.value_of(&env.extend(&x, v1))
+                e2.value_of(&env.extend(&x, &v1))
             }
             Self::LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
             Self::Proc(x, e1) => Value::closure(x, e1, env),
             Self::Apply(e1, e2) => {
                 let rator = e1.value_of(env);
                 let rand = e2.value_of(env);
-                rator.apply(rand)
+                rator.apply(&rand)
             }
         }
     }
