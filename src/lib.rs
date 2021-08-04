@@ -100,7 +100,7 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Var(String),
     Num(i32),
@@ -195,6 +195,58 @@ impl Expr {
     }
 }
 
+pub mod parser {
+    use super::Expr;
+    use nom::branch::alt;
+    use nom::bytes::complete::tag;
+    use nom::character::complete::{alpha1, alphanumeric1, char, multispace0, one_of};
+    use nom::combinator::{eof, map, map_res, opt, recognize, value};
+    use nom::multi::{many0, many1};
+    use nom::sequence::{delimited, pair, terminated};
+    use nom::IResult;
+    use std::str::FromStr;
+
+    fn lexeme<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        terminated(inner, multispace0)
+    }
+
+    fn all_of<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        delimited(multispace0, inner, eof)
+    }
+
+    #[allow(unused)]
+    fn keyword<'a>(kw: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, ()> {
+        value((), lexeme(tag(kw)))
+    }
+
+    fn ident(input: &str) -> IResult<&str, &str> {
+        lexeme(recognize(pair(
+            alt((alpha1, tag("_"))),
+            many0(alt((alphanumeric1, tag("_")))),
+        )))(input)
+    }
+
+    fn num(input: &str) -> IResult<&str, i32> {
+        map_res(
+            lexeme(recognize(pair(opt(char('-')), many1(one_of("0123456789"))))),
+            |s| i32::from_str(s),
+        )(input)
+    }
+
+    fn atomic(input: &str) -> IResult<&str, Expr> {
+        alt((map(ident, Expr::var), map(num, Expr::num)))(input)
+    }
+
+    pub fn parse(input: &str) -> IResult<&str, Expr> {
+        let (input, e) = all_of(atomic)(input)?;
+        Ok((input, e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +288,29 @@ mod tests {
         );
         let result = pgm.value_of(&env);
         assert_eq!(result, Value::Num(12))
+    }
+
+    #[test]
+    fn parser_test1() {
+        match parser::parse("foo") {
+            Ok((_, e)) => assert_eq!(e, Expr::var("foo")),
+            Err(err) => panic!("{}", err.to_string()),
+        }
+    }
+
+    #[test]
+    fn parser_test2() {
+        match parser::parse("123") {
+            Ok((_, e)) => assert_eq!(e, Expr::num(123)),
+            Err(err) => panic!("{}", err.to_string()),
+        }
+    }
+
+    #[test]
+    fn parser_test3() {
+        match parser::parse("-00324") {
+            Ok((_, e)) => assert_eq!(e, Expr::num(-324)),
+            Err(err) => panic!("{}", err.to_string()),
+        }
     }
 }
