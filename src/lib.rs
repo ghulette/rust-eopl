@@ -218,6 +218,12 @@ pub mod parser {
         delimited(multispace0, inner, eof)
     }
 
+    fn parens<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        delimited(lexeme(char('(')), inner, lexeme(char(')')))
+    }
+
     #[allow(unused)]
     fn keyword<'a>(kw: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, ()> {
         value((), lexeme(tag(kw)))
@@ -238,7 +244,7 @@ pub mod parser {
     }
 
     fn atomic(input: &str) -> IResult<&str, Expr> {
-        alt((map(ident, Expr::var), map(num, Expr::num)))(input)
+        alt((map(ident, Expr::var), map(num, Expr::num), parens(atomic)))(input)
     }
 
     pub fn parse(input: &str) -> IResult<&str, Expr> {
@@ -308,7 +314,7 @@ mod tests {
 
     #[test]
     fn parser_test3() {
-        match parser::parse("-00324") {
+        match parser::parse("  (  ( -00324 ) ) ") {
             Ok((_, e)) => assert_eq!(e, Expr::num(-324)),
             Err(err) => panic!("{}", err.to_string()),
         }
