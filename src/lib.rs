@@ -200,11 +200,26 @@ pub mod parser {
     use nom::branch::alt;
     use nom::bytes::complete::tag;
     use nom::character::complete::{alpha1, alphanumeric1, char, multispace0, one_of};
-    use nom::combinator::{eof, map, map_res, opt, recognize, value};
+    use nom::combinator::{eof, map, map_res, opt, recognize, value, verify};
     use nom::multi::{many0, many1};
     use nom::sequence::{delimited, pair, terminated};
     use nom::IResult;
+    use phf::phf_set;
     use std::str::FromStr;
+
+    static KEYWORDS: phf::Set<&'static str> = phf_set! {
+        "let",
+        "letrec",
+        "in",
+        "proc",
+        "if",
+        "then",
+        "else",
+    };
+
+    fn is_keyword(kw: &str) -> bool {
+        KEYWORDS.contains(kw)
+    }
 
     fn lexeme<'a, O>(
         inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
@@ -230,10 +245,13 @@ pub mod parser {
     }
 
     fn ident(input: &str) -> IResult<&str, &str> {
-        lexeme(recognize(pair(
-            alt((alpha1, tag("_"))),
-            many0(alt((alphanumeric1, tag("_")))),
-        )))(input)
+        verify(
+            lexeme(recognize(pair(
+                alt((alpha1, tag("_"))),
+                many0(alt((alphanumeric1, tag("_")))),
+            ))),
+            |s| !is_keyword(s),
+        )(input)
     }
 
     fn num(input: &str) -> IResult<&str, i32> {
@@ -276,10 +294,30 @@ pub mod parser {
     }
 
     fn expr0(input: &str) -> IResult<&str, Expr> {
-        atomic(input)
+        let diff = |input| {
+            let (input, e1) = expr1(input)?;
+            let (input, _) = literal("-")(input)?;
+            let (input, e2) = expr0(input)?;
+            Ok((input, Expr::diff(e1, e2)))
+        };
+        alt((diff, expr1))(input)
     }
 
-    fn atomic(input: &str) -> IResult<&str, Expr> {
+    fn expr1(input: &str) -> IResult<&str, Expr> {
+        let zero = |input| {
+            let (input, _) = literal("zero?")(input)?;
+            let (input, e) = expr2(input)?;
+            Ok((input, Expr::is_zero(e)))
+        };
+        let app = |input| {
+            let (input, e1) = expr2(input)?;
+            let (input, e2) = expr1(input)?;
+            Ok((input, Expr::apply(e1, e2))) // wrong associativity
+        };
+        alt((zero, app, expr2))(input)
+    }
+
+    fn expr2(input: &str) -> IResult<&str, Expr> {
         alt((map(ident, Expr::var), map(num, Expr::num), parens(expr)))(input)
     }
 
