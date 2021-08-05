@@ -225,8 +225,8 @@ pub mod parser {
     }
 
     #[allow(unused)]
-    fn keyword<'a>(kw: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, ()> {
-        value((), lexeme(tag(kw)))
+    fn literal<'a>(s: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, ()> {
+        value((), lexeme(tag(s)))
     }
 
     fn ident(input: &str) -> IResult<&str, &str> {
@@ -243,12 +243,48 @@ pub mod parser {
         )(input)
     }
 
+    fn let_in(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("let")(input)?;
+        let (input, x) = ident(input)?;
+        let (input, _) = literal("=")(input)?;
+        let (input, e1) = expr(input)?;
+        let (input, _) = literal("in")(input)?;
+        let (input, e2) = expr(input)?;
+        Ok((input, Expr::let_in(x, e1, e2)))
+    }
+
+    fn if_then_else(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("if")(input)?;
+        let (input, e1) = expr(input)?;
+        let (input, _) = literal("then")(input)?;
+        let (input, e2) = expr(input)?;
+        let (input, _) = literal("else")(input)?;
+        let (input, e3) = expr(input)?;
+        Ok((input, Expr::if_then_else(e1, e2, e3)))
+    }
+
+    fn proc(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("proc")(input)?;
+        let (input, f) = ident(input)?;
+        let (input, _) = literal("->")(input)?;
+        let (input, e) = expr(input)?;
+        Ok((input, Expr::proc(f, e)))
+    }
+
+    fn expr(input: &str) -> IResult<&str, Expr> {
+        alt((let_in, if_then_else, proc, expr0))(input)
+    }
+
+    fn expr0(input: &str) -> IResult<&str, Expr> {
+        atomic(input)
+    }
+
     fn atomic(input: &str) -> IResult<&str, Expr> {
-        alt((map(ident, Expr::var), map(num, Expr::num), parens(atomic)))(input)
+        alt((map(ident, Expr::var), map(num, Expr::num), parens(expr)))(input)
     }
 
     pub fn parse(input: &str) -> IResult<&str, Expr> {
-        let (input, e) = all_of(atomic)(input)?;
+        let (input, e) = all_of(expr)(input)?;
         Ok((input, e))
     }
 }
@@ -316,6 +352,21 @@ mod tests {
     fn parser_test3() {
         match parser::parse("  (  ( -00324 ) ) ") {
             Ok((_, e)) => assert_eq!(e, Expr::num(-324)),
+            Err(err) => panic!("{}", err.to_string()),
+        }
+    }
+
+    #[test]
+    fn parser_test4() {
+        match parser::parse(" let foo = -5 in \n let bar = (2) in \n x  ") {
+            Ok((_, e)) => assert_eq!(
+                e,
+                Expr::let_in(
+                    "foo",
+                    Expr::num(-5),
+                    Expr::let_in("bar", Expr::num(2), Expr::var("x"))
+                )
+            ),
             Err(err) => panic!("{}", err.to_string()),
         }
     }
