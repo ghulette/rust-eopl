@@ -220,7 +220,7 @@ impl Expr {
                     let b2 = e2.value_of(env).to_bool();
                     let r = match op {
                         Op::And => b1 && b2,
-                        Op::Or  => b1 || b2,
+                        Op::Or => b1 || b2,
                         _ => panic!("{:?} is not a valid boolean operator", op),
                     };
                     Value::bool(r)
@@ -418,23 +418,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ex1() {
-        let env = Env::empty();
-        let pgm = Expr::let_in(
-            "f",
-            Expr::proc("x", Expr::binop(Op::Sub, Expr::var("x"), Expr::num(1))),
-            Expr::if_then_else(
-                Expr::eq(Expr::num(0), Expr::apply(Expr::var("f"), Expr::num(1))),
-                Expr::num(100),
-                Expr::num(200),
-            ),
-        );
-        let result = pgm.value_of(&env);
-        assert_eq!(result, Value::Num(100))
-    }
-
-    #[test]
-    fn ex2() {
+    fn test_letrec() {
         let env = Env::empty();
         let pgm = Expr::let_rec(
             "double",
@@ -453,66 +437,60 @@ mod tests {
         assert_eq!(result, Value::Num(12))
     }
 
+    struct Example {
+        program: &'static str,
+        expected_result: Value,
+    }
+
+    fn run_example(ex: Example) {
+        let (_, pgm) = parser::parse(&ex.program).expect("parse failed");
+        let env = Env::empty();
+        assert_eq!(pgm.value_of(&env), ex.expected_result)
+    }
+
+    const EX1: Example = Example {
+        expected_result: Value::Num(11),
+        program: r#"
+let x = 5 in
+let y = 6 in
+x + y
+"#,
+    };
+
+    const EX2: Example = Example {
+        expected_result: Value::Num(3),
+        program: r#"
+10 - 3 - 4
+"#,
+    };
+
+    const EX3: Example = Example {
+        expected_result: Value::Num(9),
+        program: r#"
+1 + 2 * 3 + 4 / 2
+"#,
+    };
+
+    const EX4: Example = Example {
+        expected_result: Value::Num(4),
+        program: r#"
+let add = proc x -> proc y -> x + y in
+add 10 -6
+"#,
+    };
+
     #[test]
-    fn parser_test1() {
-        match parser::parse("foo") {
-            Ok((_, e)) => assert_eq!(e, Expr::var("foo")),
-            Err(err) => panic!("{}", err.to_string()),
-        }
+    fn examples() {
+        run_example(EX1);
+        run_example(EX2);
+        run_example(EX3);
+        run_example(EX4);
     }
 
     #[test]
-    fn parser_test2() {
-        match parser::parse("123") {
-            Ok((_, e)) => assert_eq!(e, Expr::num(123)),
-            Err(err) => panic!("{}", err.to_string()),
-        }
-    }
-
-    #[test]
-    fn parser_test3() {
-        match parser::parse("  (  ( -00324 ) ) ") {
+    fn parse_negative_number() {
+        match parser::parse("  -00324 ") {
             Ok((_, e)) => assert_eq!(e, Expr::num(-324)),
-            Err(err) => panic!("{}", err.to_string()),
-        }
-    }
-
-    #[test]
-    fn parser_test4() {
-        match parser::parse(" let foo = -5 in \n let bar = (2) in \n x = 5  ") {
-            Ok((_, e)) => assert_eq!(
-                e,
-                Expr::let_in(
-                    "foo",
-                    Expr::num(-5),
-                    Expr::let_in("bar", Expr::num(2), Expr::eq(Expr::var("x"), Expr::num(5)))
-                )
-            ),
-            Err(err) => panic!("{}", err.to_string()),
-        }
-    }
-
-    #[test]
-    fn parser_test5() {
-        match parser::parse("10 - 3 - 4") {
-            Ok((_, e)) => assert_eq!(
-                e,
-                Expr::sub(Expr::sub(Expr::num(10), Expr::num(3)), Expr::num(4))
-            ),
-            Err(err) => panic!("{}", err.to_string()),
-        }
-    }
-
-    #[test]
-    fn parser_test6() {
-        match parser::parse("f x (y - 1)") {
-            Ok((_, e)) => assert_eq!(
-                e,
-                Expr::apply(
-                    Expr::apply(Expr::var("f"), Expr::var("x")),
-                    Expr::sub(Expr::var("y"), Expr::num(1))
-                )
-            ),
             Err(err) => panic!("{}", err.to_string()),
         }
     }
