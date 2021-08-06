@@ -1,16 +1,12 @@
-use rust_eopl::{Expr, Env};
+use rust_eopl::{Env, parser};
+use std::io::{self, Read};
 
 fn main() {
+    let mut buffer = String::new();
+    let mut stdin = io::stdin();
+    stdin.read_to_string(&mut buffer).expect("failed to read stdin");
     let env = Env::empty();
-    let pgm = Expr::let_in(
-        "f",
-        Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
-        Expr::if_then_else(
-            Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
-            Expr::num(100),
-            Expr::num(200),
-        ),
-    );
+    let (_, pgm) = parser::parse(&buffer).expect("failed to parse program");
     let result = pgm.value_of(&env);
     println!("Result: {:?}", result);
 }

@@ -100,13 +100,24 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Op {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Eq,
+    Lt,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Var(String),
     Num(i32),
     Proc(String, Box<Expr>),
-    Diff(Box<Expr>, Box<Expr>),
-    IsZero(Box<Expr>),
+    Binop(Op, Box<Expr>, Box<Expr>),
     IfThenElse(Box<Expr>, Box<Expr>, Box<Expr>),
     LetIn(String, Box<Expr>, Box<Expr>),
     LetRec(String, String, Box<Expr>, Box<Expr>),
@@ -122,12 +133,40 @@ impl Expr {
         Self::Num(n)
     }
 
-    pub fn diff(e1: Self, e2: Self) -> Self {
-        Self::Diff(Box::new(e1), Box::new(e2))
+    pub fn binop(op: Op, e1: Self, e2: Self) -> Self {
+        Self::Binop(op, Box::new(e1), Box::new(e2))
     }
 
-    pub fn is_zero(e1: Self) -> Self {
-        Self::IsZero(Box::new(e1))
+    pub fn add(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Add, e1, e2)
+    }
+
+    pub fn sub(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Sub, e1, e2)
+    }
+
+    pub fn mul(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Mul, e1, e2)
+    }
+
+    pub fn div(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Div, e1, e2)
+    }
+
+    pub fn eq(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Eq, e1, e2)
+    }
+
+    pub fn lt(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Lt, e1, e2)
+    }
+
+    pub fn and(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::And, e1, e2)
+    }
+
+    pub fn or(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Or, e1, e2)
     }
 
     pub fn if_then_else(e1: Self, e2: Self, e3: Self) -> Self {
@@ -156,22 +195,48 @@ impl Expr {
     }
 
     pub fn value_of(&self, env: &Env) -> Value {
+        use Expr::*;
         match self {
-            Self::Var(x) => {
+            Var(x) => {
                 let msg = format!("not found: {}", x);
                 env.lookup(x).expect(&msg)
             }
-            Self::Num(n) => Value::num(*n),
-            Self::Diff(e1, e2) => {
-                let n1 = e1.value_of(env).to_num();
-                let n2 = e2.value_of(env).to_num();
-                Value::num(n1 - n2)
-            }
-            Self::IsZero(e1) => {
-                let n1 = e1.value_of(env).to_num();
-                Value::bool(0 == n1)
-            }
-            Self::IfThenElse(e1, e2, e3) => {
+            Num(n) => Value::num(*n),
+            Binop(op, e1, e2) => match op {
+                Op::Add | Op::Sub | Op::Mul | Op::Div => {
+                    let n1 = e1.value_of(env).to_num();
+                    let n2 = e2.value_of(env).to_num();
+                    let r = match op {
+                        Op::Add => n1 + n2,
+                        Op::Sub => n1 - n2,
+                        Op::Mul => n1 * n2,
+                        Op::Div => n1 / n2,
+                        _ => panic!("{:?} is not a valid arithmetic operator", op),
+                    };
+                    Value::num(r)
+                }
+                Op::And | Op::Or => {
+                    let b1 = e1.value_of(env).to_bool();
+                    let b2 = e2.value_of(env).to_bool();
+                    let r = match op {
+                        Op::And => b1 && b2,
+                        Op::Or => b1 || b2,
+                        _ => panic!("{:?} is not a valid boolean operator", op),
+                    };
+                    Value::bool(r)
+                }
+                Op::Lt => {
+                    let n1 = e1.value_of(env).to_num();
+                    let n2 = e2.value_of(env).to_num();
+                    Value::bool(n1 < n2)
+                }
+                Op::Eq => {
+                    let v1 = e1.value_of(env);
+                    let v2 = e2.value_of(env);
+                    Value::bool(v1 == v2)
+                }
+            },
+            IfThenElse(e1, e2, e3) => {
                 let b1 = e1.value_of(env).to_bool();
                 if b1 {
                     e2.value_of(env)
@@ -179,13 +244,13 @@ impl Expr {
                     e3.value_of(env)
                 }
             }
-            Self::LetIn(x, e1, e2) => {
+            LetIn(x, e1, e2) => {
                 let v1 = e1.value_of(env);
                 e2.value_of(&env.extend(&x, &v1))
             }
-            Self::LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
-            Self::Proc(x, e1) => Value::closure(x, e1, env),
-            Self::Apply(e1, e2) => {
+            LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
+            Proc(x, e1) => Value::closure(x, e1, env),
+            Apply(e1, e2) => {
                 let rator = e1.value_of(env);
                 let rand = e2.value_of(env);
                 rator.apply(&rand)
@@ -194,40 +259,175 @@ impl Expr {
     }
 }
 
+pub mod parser {
+    use super::{Expr, Op};
+    use nom::branch::alt;
+    use nom::bytes::complete::tag;
+    use nom::character::complete::{alpha1, alphanumeric1, char, multispace0, one_of};
+    use nom::combinator::{eof, map, map_res, opt, recognize, value, verify};
+    use nom::multi::{many0, many1};
+    use nom::sequence::{delimited, pair, terminated};
+    use nom::IResult;
+    use phf::phf_set;
+    use std::str::FromStr;
+
+    static KEYWORDS: phf::Set<&'static str> = phf_set! {
+        "let",
+        "letrec",
+        "in",
+        "proc",
+        "if",
+        "then",
+        "else",
+    };
+
+    fn is_keyword(kw: &str) -> bool {
+        KEYWORDS.contains(kw)
+    }
+
+    fn lexeme<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        terminated(inner, multispace0)
+    }
+
+    fn all_of<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        delimited(multispace0, inner, eof)
+    }
+
+    fn parens<'a, O>(
+        inner: impl FnMut(&'a str) -> IResult<&'a str, O>,
+    ) -> impl FnMut(&'a str) -> IResult<&'a str, O> {
+        delimited(lexeme(char('(')), inner, lexeme(char(')')))
+    }
+
+    #[allow(unused)]
+    fn literal<'a>(s: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
+        lexeme(tag(s))
+    }
+
+    fn ident(input: &str) -> IResult<&str, &str> {
+        verify(
+            lexeme(recognize(pair(
+                alt((alpha1, tag("_"))),
+                many0(alt((alphanumeric1, tag("_")))),
+            ))),
+            |s| !is_keyword(s),
+        )(input)
+    }
+
+    fn num(input: &str) -> IResult<&str, i32> {
+        map_res(
+            lexeme(recognize(pair(opt(char('-')), many1(one_of("0123456789"))))),
+            |s| i32::from_str(s),
+        )(input)
+    }
+
+    fn let_in(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("let")(input)?;
+        let (input, x) = ident(input)?;
+        let (input, _) = literal("=")(input)?;
+        let (input, e1) = expr(input)?;
+        let (input, _) = literal("in")(input)?;
+        let (input, e2) = expr(input)?;
+        Ok((input, Expr::let_in(x, e1, e2)))
+    }
+
+    fn if_then_else(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("if")(input)?;
+        let (input, e1) = expr(input)?;
+        let (input, _) = literal("then")(input)?;
+        let (input, e2) = expr(input)?;
+        let (input, _) = literal("else")(input)?;
+        let (input, e3) = expr(input)?;
+        Ok((input, Expr::if_then_else(e1, e2, e3)))
+    }
+
+    fn proc(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("proc")(input)?;
+        let (input, f) = ident(input)?;
+        let (input, _) = literal("->")(input)?;
+        let (input, e) = expr(input)?;
+        Ok((input, Expr::proc(f, e)))
+    }
+
+    fn expr(input: &str) -> IResult<&str, Expr> {
+        alt((let_in, if_then_else, proc, rel_expr))(input)
+    }
+
+    fn rel_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Lt, literal("<")), value(Op::Eq, literal("="))))(input)
+    }
+
+    fn rel_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = arith_expr(input)?;
+        let (input, es) = many0(pair(rel_op, arith_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
+        Ok((input, e))
+    }
+
+    fn arith_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Add, literal("+")), value(Op::Sub, literal("-"))))(input)
+    }
+
+    fn arith_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = term_expr(input)?;
+        let (input, es) = many0(pair(arith_op, term_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
+        Ok((input, e))
+    }
+
+    fn term_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Mul, literal("*")), value(Op::Div, literal("/"))))(input)
+    }
+
+    fn term_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = app_expr(input)?;
+        let (input, es) = many0(pair(term_op, app_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
+        Ok((input, e))
+    }
+
+    fn app_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = basic_expr(input)?;
+        let (input, es) = many0(basic_expr)(input)?;
+        let e = es.into_iter().fold(e0, |acc, expr| Expr::apply(acc, expr));
+        Ok((input, e))
+    }
+
+    fn basic_expr(input: &str) -> IResult<&str, Expr> {
+        alt((map(ident, Expr::var), map(num, Expr::num), parens(expr)))(input)
+    }
+
+    pub fn parse(input: &str) -> IResult<&str, Expr> {
+        let (input, e) = all_of(expr)(input)?;
+        Ok((input, e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn ex1() {
-        let env = Env::empty();
-        let pgm = Expr::let_in(
-            "f",
-            Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
-            Expr::if_then_else(
-                Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
-                Expr::num(100),
-                Expr::num(200),
-            ),
-        );
-        let result = pgm.value_of(&env);
-        assert_eq!(result, Value::Num(100))
-    }
-
-    #[test]
-    fn ex2() {
+    fn test_letrec() {
         let env = Env::empty();
         let pgm = Expr::let_rec(
             "double",
             "x",
             Expr::if_then_else(
-                Expr::is_zero(Expr::var("x")),
+                Expr::eq(Expr::num(0), Expr::var("x")),
                 Expr::num(0),
-                Expr::diff(
-                    Expr::apply(
-                        Expr::var("double"),
-                        Expr::diff(Expr::var("x"), Expr::num(1)),
-                    ),
+                Expr::sub(
+                    Expr::apply(Expr::var("double"), Expr::sub(Expr::var("x"), Expr::num(1))),
                     Expr::num(-2),
                 ),
             ),
@@ -235,5 +435,63 @@ mod tests {
         );
         let result = pgm.value_of(&env);
         assert_eq!(result, Value::Num(12))
+    }
+
+    struct Example {
+        program: &'static str,
+        expected_result: Value,
+    }
+
+    fn run_example(ex: Example) {
+        let (_, pgm) = parser::parse(&ex.program).expect("parse failed");
+        let env = Env::empty();
+        assert_eq!(pgm.value_of(&env), ex.expected_result)
+    }
+
+    const EX1: Example = Example {
+        expected_result: Value::Num(11),
+        program: r#"
+let x = 5 in
+let y = 6 in
+x + y
+"#,
+    };
+
+    const EX2: Example = Example {
+        expected_result: Value::Num(3),
+        program: r#"
+10 - 3 - 4
+"#,
+    };
+
+    const EX3: Example = Example {
+        expected_result: Value::Num(9),
+        program: r#"
+1 + 2 * 3 + 4 / 2
+"#,
+    };
+
+    const EX4: Example = Example {
+        expected_result: Value::Num(4),
+        program: r#"
+let add = proc x -> proc y -> x + y in
+add 10 -6
+"#,
+    };
+
+    #[test]
+    fn examples() {
+        run_example(EX1);
+        run_example(EX2);
+        run_example(EX3);
+        run_example(EX4);
+    }
+
+    #[test]
+    fn parse_negative_number() {
+        match parser::parse("  -00324 ") {
+            Ok((_, e)) => assert_eq!(e, Expr::num(-324)),
+            Err(err) => panic!("{}", err.to_string()),
+        }
     }
 }
