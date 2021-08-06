@@ -100,13 +100,23 @@ impl PartialEq for Value {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Op {
+    Add,
+    Sub,
+    Mul,
+    Eq,
+    Lt,
+    And,
+    Or,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Var(String),
     Num(i32),
     Proc(String, Box<Expr>),
-    Diff(Box<Expr>, Box<Expr>),
-    IsZero(Box<Expr>),
+    Binop(Op, Box<Expr>, Box<Expr>),
     IfThenElse(Box<Expr>, Box<Expr>, Box<Expr>),
     LetIn(String, Box<Expr>, Box<Expr>),
     LetRec(String, String, Box<Expr>, Box<Expr>),
@@ -122,12 +132,36 @@ impl Expr {
         Self::Num(n)
     }
 
-    pub fn diff(e1: Self, e2: Self) -> Self {
-        Self::Diff(Box::new(e1), Box::new(e2))
+    pub fn binop(op: Op, e1: Self, e2: Self) -> Self {
+        Self::Binop(op, Box::new(e1), Box::new(e2))
     }
 
-    pub fn is_zero(e1: Self) -> Self {
-        Self::IsZero(Box::new(e1))
+    pub fn add(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Add, e1, e2)
+    }
+
+    pub fn sub(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Sub, e1, e2)
+    }
+
+    pub fn mul(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Mul, e1, e2)
+    }
+
+    pub fn eq(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Eq, e1, e2)
+    }
+
+    pub fn lt(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Lt, e1, e2)
+    }
+
+    pub fn and(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::And, e1, e2)
+    }
+
+    pub fn or(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Or, e1, e2)
     }
 
     pub fn if_then_else(e1: Self, e2: Self, e3: Self) -> Self {
@@ -163,15 +197,28 @@ impl Expr {
                 env.lookup(x).expect(&msg)
             }
             Num(n) => Value::num(*n),
-            Diff(e1, e2) => {
-                let n1 = e1.value_of(env).to_num();
-                let n2 = e2.value_of(env).to_num();
-                Value::num(n1 - n2)
-            }
-            IsZero(e1) => {
-                let n1 = e1.value_of(env).to_num();
-                Value::bool(0 == n1)
-            }
+            Binop(op, e1, e2) => match op {
+                Op::Add | Op::Sub | Op::Mul => {
+                    let n1 = e1.value_of(env).to_num();
+                    let n2 = e2.value_of(env).to_num();
+                    Value::num(n1 - n2)
+                }
+                Op::And | Op::Or => {
+                    let b1 = e1.value_of(env).to_bool();
+                    let b2 = e2.value_of(env).to_bool();
+                    Value::bool(b1 && b2)
+                }
+                Op::Lt => {
+                    let n1 = e1.value_of(env).to_num();
+                    let n2 = e2.value_of(env).to_num();
+                    Value::bool(n1 < n2)
+                }
+                Op::Eq => {
+                    let v1 = e1.value_of(env);
+                    let v2 = e2.value_of(env);
+                    Value::bool(v1 == v2)
+                }
+            },
             IfThenElse(e1, e2, e3) => {
                 let b1 = e1.value_of(env).to_bool();
                 if b1 {
@@ -197,12 +244,13 @@ impl Expr {
 
 pub mod parser {
     use super::Expr;
+    use super::Op;
     use nom::branch::alt;
     use nom::bytes::complete::tag;
     use nom::character::complete::{alpha1, alphanumeric1, char, multispace0, one_of};
     use nom::combinator::{eof, map, map_res, opt, recognize, value, verify};
     use nom::multi::{many0, many1};
-    use nom::sequence::{delimited, pair, terminated};
+    use nom::sequence::{delimited, pair, preceded, terminated};
     use nom::IResult;
     use phf::phf_set;
     use std::str::FromStr;
@@ -290,34 +338,31 @@ pub mod parser {
     }
 
     fn expr(input: &str) -> IResult<&str, Expr> {
-        alt((let_in, if_then_else, proc, expr0))(input)
+        alt((let_in, if_then_else, proc, rel_expr))(input)
     }
 
-    fn expr0(input: &str) -> IResult<&str, Expr> {
-        let diff = |input| {
-            let (input, e1) = expr1(input)?;
-            let (input, _) = literal("-")(input)?;
-            let (input, e2) = expr0(input)?;
-            Ok((input, Expr::diff(e1, e2)))
-        };
-        alt((diff, expr1))(input)
+    fn rel_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = arith_expr(input)?;
+        let (input, es) = many0(preceded(literal("="), arith_expr))(input)?;
+        let e = es.into_iter().fold(e0, |acc, expr| Expr::binop(Op::Eq, acc, expr));
+        Ok((input, e))
     }
 
-    fn expr1(input: &str) -> IResult<&str, Expr> {
-        let zero = |input| {
-            let (input, _) = literal("zero?")(input)?;
-            let (input, e) = expr2(input)?;
-            Ok((input, Expr::is_zero(e)))
-        };
-        let app = |input| {
-            let (input, e1) = expr2(input)?;
-            let (input, e2) = expr1(input)?;
-            Ok((input, Expr::apply(e1, e2))) // wrong associativity
-        };
-        alt((zero, app, expr2))(input)
+    fn arith_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = app_expr(input)?;
+        let (input, es) = many0(preceded(literal("-"), app_expr))(input)?;
+        let e = es.into_iter().fold(e0, |acc, expr| Expr::binop(Op::Sub, acc, expr));
+        Ok((input, e))
     }
 
-    fn expr2(input: &str) -> IResult<&str, Expr> {
+    fn app_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = basic_expr(input)?;
+        let (input, es) = many0(basic_expr)(input)?;
+        let e = es.into_iter().fold(e0, |acc, expr| Expr::apply(acc, expr));
+        Ok((input, e))
+    }
+
+    fn basic_expr(input: &str) -> IResult<&str, Expr> {
         alt((map(ident, Expr::var), map(num, Expr::num), parens(expr)))(input)
     }
 
@@ -336,9 +381,9 @@ mod tests {
         let env = Env::empty();
         let pgm = Expr::let_in(
             "f",
-            Expr::proc("x", Expr::diff(Expr::var("x"), Expr::num(1))),
+            Expr::proc("x", Expr::binop(Op::Sub, Expr::var("x"), Expr::num(1))),
             Expr::if_then_else(
-                Expr::is_zero(Expr::apply(Expr::var("f"), Expr::num(1))),
+                Expr::eq(Expr::num(0), Expr::apply(Expr::var("f"), Expr::num(1))),
                 Expr::num(100),
                 Expr::num(200),
             ),
@@ -354,12 +399,12 @@ mod tests {
             "double",
             "x",
             Expr::if_then_else(
-                Expr::is_zero(Expr::var("x")),
+                Expr::eq(Expr::num(0), Expr::var("x")),
                 Expr::num(0),
-                Expr::diff(
+                Expr::sub(
                     Expr::apply(
                         Expr::var("double"),
-                        Expr::diff(Expr::var("x"), Expr::num(1)),
+                        Expr::sub(Expr::var("x"), Expr::num(1)),
                     ),
                     Expr::num(-2),
                 ),
@@ -396,14 +441,36 @@ mod tests {
 
     #[test]
     fn parser_test4() {
-        match parser::parse(" let foo = -5 in \n let bar = (2) in \n x  ") {
+        match parser::parse(" let foo = -5 in \n let bar = (2) in \n x = 5  ") {
             Ok((_, e)) => assert_eq!(
                 e,
                 Expr::let_in(
                     "foo",
                     Expr::num(-5),
-                    Expr::let_in("bar", Expr::num(2), Expr::var("x"))
+                    Expr::let_in("bar", Expr::num(2), Expr::eq(Expr::var("x"), Expr::num(5)))
                 )
+            ),
+            Err(err) => panic!("{}", err.to_string()),
+        }
+    }
+
+    #[test]
+    fn parser_test5() {
+        match parser::parse("10 - 3 - 4") {
+            Ok((_, e)) => assert_eq!(
+                e,
+                Expr::sub(Expr::sub(Expr::num(10), Expr::num(3)), Expr::num(4))
+            ),
+            Err(err) => panic!("{}", err.to_string()),
+        }
+    }
+
+    #[test]
+    fn parser_test6() {
+        match parser::parse("f x (y - 1)") {
+            Ok((_, e)) => assert_eq!(
+                e,
+                Expr::apply(Expr::apply(Expr::var("f"), Expr::var("x")), Expr::sub(Expr::var("y"), Expr::num(1)))
             ),
             Err(err) => panic!("{}", err.to_string()),
         }
