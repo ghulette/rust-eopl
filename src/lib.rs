@@ -105,6 +105,7 @@ pub enum Op {
     Add,
     Sub,
     Mul,
+    Div,
     Eq,
     Lt,
     And,
@@ -146,6 +147,10 @@ impl Expr {
 
     pub fn mul(e1: Self, e2: Self) -> Self {
         Self::binop(Op::Mul, e1, e2)
+    }
+
+    pub fn div(e1: Self, e2: Self) -> Self {
+        Self::binop(Op::Div, e1, e2)
     }
 
     pub fn eq(e1: Self, e2: Self) -> Self {
@@ -198,15 +203,27 @@ impl Expr {
             }
             Num(n) => Value::num(*n),
             Binop(op, e1, e2) => match op {
-                Op::Add | Op::Sub | Op::Mul => {
+                Op::Add | Op::Sub | Op::Mul | Op::Div => {
                     let n1 = e1.value_of(env).to_num();
                     let n2 = e2.value_of(env).to_num();
-                    Value::num(n1 - n2)
+                    let r = match op {
+                        Op::Add => n1 + n2,
+                        Op::Sub => n1 - n2,
+                        Op::Mul => n1 * n2,
+                        Op::Div => n1 / n2,
+                        _ => panic!("{:?} is not a valid arithmetic operator", op),
+                    };
+                    Value::num(r)
                 }
                 Op::And | Op::Or => {
                     let b1 = e1.value_of(env).to_bool();
                     let b2 = e2.value_of(env).to_bool();
-                    Value::bool(b1 && b2)
+                    let r = match op {
+                        Op::And => b1 && b2,
+                        Op::Or  => b1 || b2,
+                        _ => panic!("{:?} is not a valid boolean operator", op),
+                    };
+                    Value::bool(r)
                 }
                 Op::Lt => {
                     let n1 = e1.value_of(env).to_num();
@@ -243,14 +260,13 @@ impl Expr {
 }
 
 pub mod parser {
-    use super::Expr;
-    use super::Op;
+    use super::{Expr, Op};
     use nom::branch::alt;
     use nom::bytes::complete::tag;
     use nom::character::complete::{alpha1, alphanumeric1, char, multispace0, one_of};
     use nom::combinator::{eof, map, map_res, opt, recognize, value, verify};
     use nom::multi::{many0, many1};
-    use nom::sequence::{delimited, pair, preceded, terminated};
+    use nom::sequence::{delimited, pair, terminated};
     use nom::IResult;
     use phf::phf_set;
     use std::str::FromStr;
@@ -288,8 +304,8 @@ pub mod parser {
     }
 
     #[allow(unused)]
-    fn literal<'a>(s: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, ()> {
-        value((), lexeme(tag(s)))
+    fn literal<'a>(s: &'a str) -> impl FnMut(&'a str) -> IResult<&'a str, &'a str> {
+        lexeme(tag(s))
     }
 
     fn ident(input: &str) -> IResult<&str, &str> {
@@ -341,17 +357,42 @@ pub mod parser {
         alt((let_in, if_then_else, proc, rel_expr))(input)
     }
 
+    fn rel_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Lt, literal("<")), value(Op::Eq, literal("="))))(input)
+    }
+
     fn rel_expr(input: &str) -> IResult<&str, Expr> {
         let (input, e0) = arith_expr(input)?;
-        let (input, es) = many0(preceded(literal("="), arith_expr))(input)?;
-        let e = es.into_iter().fold(e0, |acc, expr| Expr::binop(Op::Eq, acc, expr));
+        let (input, es) = many0(pair(rel_op, arith_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
         Ok((input, e))
     }
 
+    fn arith_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Add, literal("+")), value(Op::Sub, literal("-"))))(input)
+    }
+
     fn arith_expr(input: &str) -> IResult<&str, Expr> {
+        let (input, e0) = term_expr(input)?;
+        let (input, es) = many0(pair(arith_op, term_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
+        Ok((input, e))
+    }
+
+    fn term_op(input: &str) -> IResult<&str, Op> {
+        alt((value(Op::Mul, literal("*")), value(Op::Div, literal("/"))))(input)
+    }
+
+    fn term_expr(input: &str) -> IResult<&str, Expr> {
         let (input, e0) = app_expr(input)?;
-        let (input, es) = many0(preceded(literal("-"), app_expr))(input)?;
-        let e = es.into_iter().fold(e0, |acc, expr| Expr::binop(Op::Sub, acc, expr));
+        let (input, es) = many0(pair(term_op, app_expr))(input)?;
+        let e = es
+            .into_iter()
+            .fold(e0, |acc, (op, expr)| Expr::binop(op, acc, expr));
         Ok((input, e))
     }
 
@@ -402,10 +443,7 @@ mod tests {
                 Expr::eq(Expr::num(0), Expr::var("x")),
                 Expr::num(0),
                 Expr::sub(
-                    Expr::apply(
-                        Expr::var("double"),
-                        Expr::sub(Expr::var("x"), Expr::num(1)),
-                    ),
+                    Expr::apply(Expr::var("double"), Expr::sub(Expr::var("x"), Expr::num(1))),
                     Expr::num(-2),
                 ),
             ),
@@ -470,7 +508,10 @@ mod tests {
         match parser::parse("f x (y - 1)") {
             Ok((_, e)) => assert_eq!(
                 e,
-                Expr::apply(Expr::apply(Expr::var("f"), Expr::var("x")), Expr::sub(Expr::var("y"), Expr::num(1)))
+                Expr::apply(
+                    Expr::apply(Expr::var("f"), Expr::var("x")),
+                    Expr::sub(Expr::var("y"), Expr::num(1))
+                )
             ),
             Err(err) => panic!("{}", err.to_string()),
         }
