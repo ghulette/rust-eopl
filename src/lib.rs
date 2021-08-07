@@ -335,6 +335,17 @@ pub mod parser {
         Ok((input, Expr::let_in(x, e1, e2)))
     }
 
+    fn let_rec(input: &str) -> IResult<&str, Expr> {
+        let (input, _) = literal("letrec")(input)?;
+        let (input, f) = ident(input)?;
+        let (input, x) = ident(input)?;
+        let (input, _) = literal("=")(input)?;
+        let (input, e1) = expr(input)?;
+        let (input, _) = literal("in")(input)?;
+        let (input, e2) = expr(input)?;
+        Ok((input, Expr::let_rec(f, x, e1, e2)))
+    }
+
     fn if_then_else(input: &str) -> IResult<&str, Expr> {
         let (input, _) = literal("if")(input)?;
         let (input, e1) = expr(input)?;
@@ -354,7 +365,7 @@ pub mod parser {
     }
 
     fn expr(input: &str) -> IResult<&str, Expr> {
-        alt((let_in, if_then_else, proc, rel_expr))(input)
+        alt((let_rec, let_in, if_then_else, proc, rel_expr))(input)
     }
 
     fn rel_op(input: &str) -> IResult<&str, Op> {
@@ -417,26 +428,6 @@ pub mod parser {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_letrec() {
-        let env = Env::empty();
-        let pgm = Expr::let_rec(
-            "double",
-            "x",
-            Expr::if_then_else(
-                Expr::eq(Expr::num(0), Expr::var("x")),
-                Expr::num(0),
-                Expr::sub(
-                    Expr::apply(Expr::var("double"), Expr::sub(Expr::var("x"), Expr::num(1))),
-                    Expr::num(-2),
-                ),
-            ),
-            Expr::apply(Expr::var("double"), Expr::num(6)),
-        );
-        let result = pgm.value_of(&env);
-        assert_eq!(result, Value::Num(12))
-    }
-
     struct Example {
         program: &'static str,
         expected_result: Value,
@@ -479,12 +470,35 @@ add 10 -6
 "#,
     };
 
+    const FACT: Example = Example {
+        expected_result: Value::Num(120),
+        program: r#"
+letrec fact n =
+  if n = 0 then 1 else n * fact (n - 1)
+in
+  fact 5
+"#,
+    };
+
+    const DOUBLE: Example = Example {
+        expected_result: Value::Num(200),
+        program: r#"
+letrec double x =
+  if x = 0 then 0
+  else double (x - 1) + 2
+in
+  double 100
+"#,
+    };
+
     #[test]
     fn examples() {
         run_example(EX1);
         run_example(EX2);
         run_example(EX3);
         run_example(EX4);
+        run_example(FACT);
+        run_example(DOUBLE);
     }
 
     #[test]
