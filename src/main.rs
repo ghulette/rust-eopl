@@ -7,6 +7,6 @@ fn main() {
     stdin.read_to_string(&mut buffer).expect("failed to read stdin");
     let (_, pgm) = parser::parse(&buffer).expect("failed to parse program");
     let env = Env::empty();
-    let result = pgm.value_of(&env);
+    let result = pgm.eval(&env);
     println!("Result: {:?}", result);
 }

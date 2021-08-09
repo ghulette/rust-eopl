@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 #[derive(Debug, Clone)]
 pub enum Env {
     Empty,
@@ -51,6 +53,28 @@ pub enum Value {
     Closure(String, Box<Expr>, Box<Env>),
 }
 
+impl TryFrom<&Value> for i32 {
+    type Error = &'static str;
+
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
+        match val {
+            Value::Num(n) => Ok(*n),
+            _ => Err("Value is not a number"),
+        }
+    }
+}
+
+impl TryFrom<&Value> for bool {
+    type Error = &'static str;
+
+    fn try_from(val: &Value) -> Result<Self, Self::Error> {
+        match val {
+            Value::Bool(b) => Ok(*b),
+            _ => Err("Value is not a bool"),
+        }
+    }
+}
+
 impl Value {
     fn num(n: i32) -> Self {
         Value::Num(n)
@@ -69,22 +93,16 @@ impl Value {
     }
 
     fn to_num(&self) -> i32 {
-        match self {
-            Value::Num(n) => *n,
-            _ => panic!("Value::to_num"),
-        }
+        i32::try_from(self).expect("Value::to_num")
     }
 
     fn to_bool(&self) -> bool {
-        match self {
-            Value::Bool(b) => *b,
-            _ => panic!("Value::to_bool"),
-        }
+        bool::try_from(self).expect("Value::to_bool")
     }
 
     fn apply(&self, v2: &Self) -> Self {
         match self {
-            Value::Closure(x, e, env) => e.value_of(&env.extend(x, v2)),
+            Value::Closure(x, e, env) => e.eval(&env.extend(x, v2)),
             _ => panic!("Value::apply"),
         }
     }
@@ -194,7 +212,7 @@ impl Expr {
         Self::Apply(Box::new(e1), Box::new(e2))
     }
 
-    pub fn value_of(&self, env: &Env) -> Value {
+    pub fn eval(&self, env: &Env) -> Value {
         use Expr::*;
         match self {
             Var(x) => {
@@ -204,8 +222,8 @@ impl Expr {
             Num(n) => Value::num(*n),
             Binop(op, e1, e2) => match op {
                 Op::Add | Op::Sub | Op::Mul | Op::Div => {
-                    let n1 = e1.value_of(env).to_num();
-                    let n2 = e2.value_of(env).to_num();
+                    let n1 = e1.eval(env).to_num();
+                    let n2 = e2.eval(env).to_num();
                     let r = match op {
                         Op::Add => n1 + n2,
                         Op::Sub => n1 - n2,
@@ -216,8 +234,8 @@ impl Expr {
                     Value::num(r)
                 }
                 Op::And | Op::Or => {
-                    let b1 = e1.value_of(env).to_bool();
-                    let b2 = e2.value_of(env).to_bool();
+                    let b1 = e1.eval(env).to_bool();
+                    let b2 = e2.eval(env).to_bool();
                     let r = match op {
                         Op::And => b1 && b2,
                         Op::Or => b1 || b2,
@@ -226,33 +244,33 @@ impl Expr {
                     Value::bool(r)
                 }
                 Op::Lt => {
-                    let n1 = e1.value_of(env).to_num();
-                    let n2 = e2.value_of(env).to_num();
+                    let n1 = e1.eval(env).to_num();
+                    let n2 = e2.eval(env).to_num();
                     Value::bool(n1 < n2)
                 }
                 Op::Eq => {
-                    let v1 = e1.value_of(env);
-                    let v2 = e2.value_of(env);
+                    let v1 = e1.eval(env);
+                    let v2 = e2.eval(env);
                     Value::bool(v1 == v2)
                 }
             },
             IfThenElse(e1, e2, e3) => {
-                let b1 = e1.value_of(env).to_bool();
+                let b1 = e1.eval(env).to_bool();
                 if b1 {
-                    e2.value_of(env)
+                    e2.eval(env)
                 } else {
-                    e3.value_of(env)
+                    e3.eval(env)
                 }
             }
             LetIn(x, e1, e2) => {
-                let v1 = e1.value_of(env);
-                e2.value_of(&env.extend(&x, &v1))
+                let v1 = e1.eval(env);
+                e2.eval(&env.extend(&x, &v1))
             }
-            LetRec(proc, x, e1, e2) => e2.value_of(&env.extend_rec(&proc, &x, e1)),
+            LetRec(proc, x, e1, e2) => e2.eval(&env.extend_rec(&proc, &x, e1)),
             Proc(x, e1) => Value::closure(x, e1, env),
             Apply(e1, e2) => {
-                let rator = e1.value_of(env);
-                let rand = e2.value_of(env);
+                let rator = e1.eval(env);
+                let rand = e2.eval(env);
                 rator.apply(&rand)
             }
         }
@@ -436,7 +454,7 @@ mod tests {
     fn run_example(ex: Example) {
         let (_, pgm) = parser::parse(&ex.program).expect("parse failed");
         let env = Env::empty();
-        assert_eq!(pgm.value_of(&env), ex.expected_result)
+        assert_eq!(pgm.eval(&env), ex.expected_result)
     }
 
     const EX1: Example = Example {
